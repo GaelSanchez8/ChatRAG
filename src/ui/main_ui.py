@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QTextEdit, QLineEdit, QPushButton, 
                             QFileDialog, QLabel, QListWidget)
 from PySide6.QtCore import Qt
-from database_manager import insertar_mensaje_db, inicializar_datos_prueba  # Eliminar inicializar_datos_prueba en producción, es solo para pruebas iniciales
+from database.database_manager import insertar_mensaje_db, inicializar_datos_prueba  # Eliminar inicializar_datos_prueba en producción, es solo para pruebas iniciales
 
 class ChatWindow(QMainWindow):
     def __init__(self):

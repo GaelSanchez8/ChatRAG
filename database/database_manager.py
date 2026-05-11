@@ -2,7 +2,7 @@ import sqlite3
 
 #Funcion para abrir la base de datos y cerrarla
 def insertar_mensaje_db(id_conversacion, emisor, texto):
-    conexion = sqlite3.connect("chatbot_rag.db")
+    conexion = sqlite3.connect("/home/gael-sanchez/4to_semestre/progra3/Proyecto/data/chatbot_rag.db")
     cursor = conexion.cursor()
     cursor.execute(
         "INSERT INTO Mensajes (ID_Conversacion, Emisor, Texto) VALUES (?, ?, ?)", #los signos de interrogacion son placeholders para evitar inyecciones SQL
@@ -16,7 +16,7 @@ def insertar_mensaje_db(id_conversacion, emisor, texto):
 
 #Prueba para ver si la conexion a la base de datos funciona correctamente
 def inicializar_datos_prueba():
-    conexion = sqlite3.connect("chatbot_rag.db")
+    conexion = sqlite3.connect("/home/gael-sanchez/4to_semestre/progra3/Proyecto/data/chatbot_rag.db")
     cursor = conexion.cursor()
 
     # 1. Creamos un usuario de prueba si no hay ninguno
