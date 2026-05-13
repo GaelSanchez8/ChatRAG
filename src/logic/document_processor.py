@@ -1,4 +1,15 @@
 import fitz  # PyMuPDF
+import os
+from google import genai
+from dotenv import load_dotenv
+import math
+load_dotenv()
+API_KEY = os.getenv("GEMINI_API_KEY")
+if API_KEY:
+    cliente = genai.Client(api_key=API_KEY)
+else:
+    cliente = None
+
 
 def extraer_texto_pdf(ruta_archivo):
     texto_completo = ""
@@ -17,87 +28,86 @@ def extraer_texto_pdf(ruta_archivo):
         return None
 
 
-# Lista de palabras que harian que la IA no las tome en cuenta para encontrar el chunk más relevante, ya que son palabras comunes que no aportan información relevante para la pregunta
-STOPWORDS_ESPANOL = {
-    "el", "la", "los", "las", "un", "una", "unos", "unas",
-    "y", "e", "o", "u", "ni", "que", "pero", "aunque", "mas",
-    "a", "ante", "bajo", "cabe", "con", "contra", "de", "desde",
-    "en", "entre", "hacia", "hasta", "para", "por", "segun", "sin",
-    "sobre", "tras", "durante", "mediante",
-    "yo", "tu", "el", "ella", "nosotros", "vosotros", "ellos", "ellas",
-    "me", "te", "se", "nos", "os", "le", "les", "lo", "la",
-    "mi", "tu", "su", "nuestro", "vuestro",
-    "este", "ese", "aquel", "esta", "esa", "aquella", "estos", "esos", "aquellos",
-    "cual", "quien", "cuanto", "cuando", "como", "donde",
-    "es", "son", "fue", "ser", "estar", "tiene", "tienen", "hace", "hacen",
-    "muy", "mucho", "poco", "aqui", "alli", "hoy", "manana",
-    "si", "no", "asi"
-}
-
-
 def dividir_texto_en_chunks(texto, tamaño_chunk=1000, solapamiento=200):
-    # Divide el texto en partes más pequeñas (chunks) para facilitar su procesamiento
+    # Divide el texto en partes más pequeñas (chunks) para facilitar su procesamiento, respetando parrafos para no hacer cortes abruptos
+    parrafos = texto.split("\n\n")  # Dividir el texto en párrafos
     chunks = []
-    inicio = 0
+    chunk_actual = ""
 
-    while inicio < len(texto):
-        fin = inicio + tamaño_chunk # Define el final del chunk
-        chunk = texto[inicio:fin] # Extrae el chunk del texto
-        chunks.append(chunk)
-        inicio += tamaño_chunk - solapamiento # Avanza el inicio para el siguiente chunk
+    for parrafo in parrafos:
+        parrafo = parrafo.strip()
+        if not parrafo:
+            continue
+
+        # Si el párrafo actual más el nuevo párrafo exceden el tamaño del chunk, guardar el chunk actual y empezar uno nuevo
+        if len(chunk_actual) + len(parrafo) > tamaño_chunk and chunk_actual:
+            chunks.append(chunk_actual.strip())
+            chunk_actual = parrafo + " "  # Empezar un nuevo chunk con el párrafo actual
+        else:
+            chunk_actual += parrafo + " "  # Agregar el párrafo al chunk actual
+    
+    if chunk_actual:  # Agregar el último chunk si no está vacío
+        chunks.append(chunk_actual.strip())
+    
     return chunks
 
 
-def limpiar_texto(texto):
-    #Convertir a minúsculas 
-    texto_limpio = texto.lower()
-    
-    #Reemplazar caracteres acentuados por sus equivalentes sin acento
-    reemplazos = (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u"))
-    for con_tilde, sin_tilde in reemplazos:
-        texto_limpio = texto_limpio.replace(con_tilde, sin_tilde)
-        
-    #Quitar todos los signos
-    texto_limpio = texto_limpio.replace("?", "").replace(".", "").replace("!", "").replace(",", "").replace(";", "").replace(":", "").replace("(", "").replace(")", "").replace("¿", "")
-    
-    #Separar y restar stopwords
-    todas_palabras = set(texto_limpio.split())
-    palabras_clave = todas_palabras - STOPWORDS_ESPANOL
-    
-    return palabras_clave
+#Motor de busqueda semantica (embeddings) para encontrar el chunk más relevante para la pregunta que se haga y devolver ese chunk para que la IA lo procese
+def calcular_similitud_coseno(vec1, vec2):
+    # Calcula la similitud coseno entre dos vectores
+    producto_punto = sum(a * b for a, b in zip(vec1, vec2))
+    magnitud_vec1 = math.sqrt(sum(a * a for a in vec1))
+    magnitud_vec2 = math.sqrt(sum(b * b for b in vec2))
+
+    if magnitud_vec1 == 0 or magnitud_vec2 == 0:
+        return 0.0
+    return producto_punto / (magnitud_vec1 * magnitud_vec2)
+
+
+def obtener_embedding(texto):
+    if not cliente:
+        print("Error: No hay cliente de Gemini disponible. Verifica la API key.")
+        return None
+    try:
+        respuesta = cliente.models.embed_content(
+            model="gemini-embedding-001",  # Puedes elegir el modelo de embedding que prefieras
+            contents=texto
+        )
+        return respuesta.embeddings[0].values
+    except Exception as e:
+        print(f"Error al obtener embedding de Gemini: {e}")
+        return None
 
 def encontrar_mejores_chunks(pregunta, chunks):
     #Busca cual de los chunks es el más relevante para la pregunta que se haga y devuelve ese chunk para que la IA lo procese
     if not chunks:
         return ""
-    # Limpiar la pregunta y convertirla en un conjunto de palabras
-    palabra_pregunta = limpiar_texto(pregunta)
+    
+    #Se convierte la pregunta en un vector de embedding para compararla con los chunks
+    vector_pregunta = obtener_embedding(pregunta)
+    if not vector_pregunta:
+        return ""
 
     mejor_chunk = ""
-    max_puntaje = 0
-    chunk_limpio = " ".join(mejor_chunk.split())  # Eliminar espacios extras
+    max_similitud = -1.0
 
     for chunk in chunks:
         # Limpiar el chunk y convertirlo en un conjunto de palabras
-        texto_chunk_limpio = chunk.lower()
-        remplazos = (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u"))
-        for con_tilde, sin_tilde in remplazos:
-            texto_chunk_limpio = texto_chunk_limpio.replace(con_tilde, sin_tilde)
+        vector_chunk = obtener_embedding(chunk)
+        if not vector_chunk:
+            continue
+        similitud = calcular_similitud_coseno(vector_pregunta, vector_chunk) # Incrementar el puntaje por cada coincidencia de palabra entre la pregunta y el chunk
 
-        texto_chunk_limpio = texto_chunk_limpio.replace("?", "").replace(".", "").replace("!", "").replace(",", "").replace(";", "").replace(":", "").replace("(", "").replace(")", "").replace("¿", "")
-        lista_palabras_chunk = texto_chunk_limpio.split()
-
-        puntaje_chunk = 0
-        for palabra in palabra_pregunta:
-            puntaje_chunk += lista_palabras_chunk.count(palabra) # Incrementar el puntaje por cada coincidencia de palabra entre la pregunta y el chunk
-
-        if puntaje_chunk > max_puntaje:
-            max_puntaje = puntaje_chunk
+        if similitud > max_similitud:
+            max_similitud = similitud
             mejor_chunk = chunk
-            
-        
-    print(f"El chunk más relevante para la pregunta '{pregunta}' es: {mejor_chunk[:100]}... con {max_puntaje} coincidencias.")
-    if max_puntaje == 0:
-        print("No se encontraron coincidencias relevantes entre la pregunta y los chunks del documento.")
+    
+    print(f'Similitud máxima para {pregunta}: {max_similitud}')
+
+    # Umbral de seguridad para evitar devolver chunks irrelevantes 
+    if max_similitud < 0.2:
+        print("No se encontró un chunk relevante para la pregunta.")
         return ""
-    return mejor_chunk
+    chunk_limpio = " ".join(mejor_chunk.split())  # Eliminar saltos de línea y espacios extra antes de mandarlo a la IA
+
+    return chunk_limpio

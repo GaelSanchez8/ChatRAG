@@ -1,21 +1,42 @@
-# Simulación de un motor de IA para responder preguntas basadas en el contenido de un PDF
-import time
-import random
+import os 
+from google import genai
+from dotenv import load_dotenv
 
-def procesar_pregunta_ia(pregunta, contexto_documento=""):
-    """
-    Simula el tiempo de respuesta de una IA real.
-    """
-    # Simulamos que la IA está "pensando" (latencia)
-    # Esto detendría cualquier hilo donde se ejecute
-    time.sleep(3) 
+load_dotenv()
+
+#Obetener la clave de la API de Gemini desde las variables de entorno
+API_KEY = os.getenv("GEMINI_API_KEY")
+if API_KEY: 
+    cliente = genai.Client(api_key=API_KEY)
+else:
+    cliente = None
+
+def procesar_pregunta_ia(pregunta, contexto=""):
+    #Toma el mejor chunk y se lo pasa a gemini
+    if not contexto:
+        return "Por favor, carga un documento para que pueda responder a tus preguntas."
+    if not cliente:
+        return "Error: No se encontró la API key, en el .env."
     
-    if not contexto_documento:
-        return "No se ha cargado ningún documento para proporcionar contexto. Por favor, carga un PDF para obtener respuestas basadas en su contenido."
-    respuestas = [
-        f"Basado en el documento cargado, la respuesta a '{pregunta}' es...",
-        f"He leído los {len(contexto_documento)} caracteres del PDF. La respuesta es positiva.",
-        "Según el contexto proporcionado, puedo confirmar ese dato.",
-    ]
+    #El prompt RAG (obliga a la IA a no inventar respuestas y a usar solo el contexto proporcionado
+    prompt = f"""
+    Eres un asistente experto de análisis de documentos. 
+    Responde a la pregunta del usuario basándote ÚNICAMENTE en la información proporcionada en el siguiente contexto. 
+    Si la respuesta no se encuentra en el contexto, indica claramente que no tienes suficiente información en el documento.
     
-    return random.choice(respuestas)
+    Contexto del documento:
+    {contexto}
+    
+    Pregunta del usuario:
+    {pregunta}
+    """ 
+
+    try:
+        #LLamada a la API de Gemini para obtener la respuesta
+        respuesta = cliente.models.generate_content(
+            model="gemini-2.5-flash",  # Puedes elegir el modelo que prefieras
+            contents=prompt
+        )
+        return respuesta.text.strip()
+    except Exception as e:
+        return f"Error de conexión con la API de Gemini: {str(e)}"

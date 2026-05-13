@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PySide6.QtCore import Qt, QThread, Signal
 from database.database_manager import insertar_mensaje_db, inicializar_datos_prueba  # Eliminar inicializar_datos_prueba en producción, es solo para pruebas iniciales
 from src.logic.ia_engine import procesar_pregunta_ia
-from src.logic.document_processor import extraer_texto_pdf, dividir_texto_en_chunks, limpiar_texto, encontrar_mejores_chunks
+from src.logic.document_processor import extraer_texto_pdf, dividir_texto_en_chunks, encontrar_mejores_chunks
 
 class ChatWindow(QMainWindow):
     def __init__(self):
