@@ -1,6 +1,13 @@
 import sqlite3
+import os
 
-conexion = sqlite3.connect('chatbot_rag.db')
+# Obtener la ruta de la base de datos de forma relativa (funciona en cualquier máquina)
+db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'chatbot_rag.db')
+
+# Crear la carpeta 'data' si no existe
+os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+conexion = sqlite3.connect(db_path)
 cursor = conexion.cursor()
 
 #Creación de la tabla para los usuarios.

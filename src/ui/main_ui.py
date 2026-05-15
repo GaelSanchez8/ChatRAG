@@ -54,13 +54,6 @@ class ChatWindow(QMainWindow):
         self.btn_enviar.clicked.connect(self.enviar_mensaje)
 
 
-    def seleccionar_archivo(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Seleccionar Archivo", "", "Archivos (*.pdf *.txt)")
-        if file_path:
-            nombre = file_path.split("/")[-1]
-            self.lbl_archivo.setText(f"Archivo: {nombre}")
-
-
     def enviar_mensaje(self):
         texto = self.campo_texto.text()
         if texto:
@@ -85,7 +78,6 @@ class ChatWindow(QMainWindow):
 
     def seleccionar_archivo(self):
         #Funcion para abrir el buscador de archivos y extraer el texto del PDF seleccionado
-        #Abri el buscador de archivos
         file_path, _ = QFileDialog.getOpenFileName(self, "Seleccionar Archivo", "", "Archivos (*.pdf *.txt)")
         if file_path:
             nombre = file_path.split("/")[-1]
@@ -106,10 +98,10 @@ class ChatWindow(QMainWindow):
 class IAThread(QThread):
     respuesta_recibida = Signal(str)
 
-    def __init__(self, pregunta, chunks=[]):
+    def __init__(self, pregunta, chunks=None):
         super().__init__()
         self.pregunta = pregunta
-        self.chunks = chunks
+        self.chunks = chunks if chunks is not None else []
 
     def run(self):
         mejor_contexto = encontrar_mejores_chunks(self.pregunta, self.chunks)  

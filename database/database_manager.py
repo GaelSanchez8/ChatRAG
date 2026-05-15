@@ -1,8 +1,12 @@
 import sqlite3
+import os
+
+# Obtener la ruta de la base de datos de forma relativa (funciona en cualquier máquina)
+db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'chatbot_rag.db')
 
 #Funcion para abrir la base de datos y cerrarla
 def insertar_mensaje_db(id_conversacion, emisor, texto):
-    conexion = sqlite3.connect("/home/gael-sanchez/4to_semestre/progra3/Proyecto/data/chatbot_rag.db")
+    conexion = sqlite3.connect(db_path)
     cursor = conexion.cursor()
     cursor.execute(
         "INSERT INTO Mensajes (ID_Conversacion, Emisor, Texto) VALUES (?, ?, ?)", #los signos de interrogacion son placeholders para evitar inyecciones SQL
@@ -16,7 +20,7 @@ def insertar_mensaje_db(id_conversacion, emisor, texto):
 
 #Prueba para ver si la conexion a la base de datos funciona correctamente
 def inicializar_datos_prueba():
-    conexion = sqlite3.connect("/home/gael-sanchez/4to_semestre/progra3/Proyecto/data/chatbot_rag.db")
+    conexion = sqlite3.connect(db_path)
     cursor = conexion.cursor()
 
     # 1. Creamos un usuario de prueba si no hay ninguno
