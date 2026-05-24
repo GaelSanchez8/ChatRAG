@@ -7,7 +7,7 @@ from PySide6.QtGui import QKeyEvent
 from database.database_manager import (crear_conversacion_db, insertar_mensaje_db, 
                                        obtener_conversacion_por_archivo, obtener_mensajes_db, 
                                        obtener_datos_completos_conversacion)
-from src.logic.ia_engine import procesar_pregunta_ia
+from src.logic.ia_engine import _llamar_gemini_interno
 from src.logic.document_processor import extraer_texto_pdf, dividir_texto_en_chunks, encontrar_mejores_chunks
 from src.logic.export_manager import exportar_a_json, exportar_a_xml
 import os
@@ -150,6 +150,14 @@ class ChatWindow(QWidget):
         self.btn_enviar.setObjectName("btnEnviar")
         self.btn_enviar.setFixedSize(90, 32)
         
+        #Aviso de privacidad
+        self.lbl_privacidad = QLabel("El contenido de los documentos podría ser procesado por servicios de terceros"
+                                    "(IA) para generar respuestas.")
+        self.lbl_privacidad.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_privacidad.setWordWrap(True)
+        self.lbl_privacidad.setStyleSheet("color: #8a8886; font-size: 11px; margin-top: 3px;")
+        self.layout_chat.addWidget(self.lbl_privacidad)
+
         self.layout_entrada.addWidget(self.campo_texto)
         self.layout_entrada.addWidget(self.btn_enviar)
         self.layout_chat.addLayout(self.layout_entrada)
@@ -477,7 +485,7 @@ class IAThread(QThread):
 
     def run(self):
         mejor_contexto = encontrar_mejores_chunks(self.pregunta, self.chunks)  
-        respuesta = procesar_pregunta_ia(self.pregunta, mejor_contexto)
+        respuesta = _llamar_gemini_interno(self.pregunta, mejor_contexto)
         insertar_mensaje_db(self.id_conversacion_actual, "Sistema", respuesta)  
         self.respuesta_recibida.emit(respuesta)
 
