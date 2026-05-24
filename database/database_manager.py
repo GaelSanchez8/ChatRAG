@@ -2,6 +2,7 @@ import os
 import sqlite3
 import psycopg2
 from dotenv import load_dotenv
+from datetime import datetime
 from src.logic import auth_manager
 
 load_dotenv()
@@ -66,6 +67,10 @@ def inicializar_base_de_datos():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     correo TEXT UNIQUE NOT NULL,
                     password_hash TEXT NOT NULL,
+                    codigo_verificacion VARCHAR(6),
+                    intentos_verificacion INTEGER DEFAULT 0,
+                    fecha_codigo_generado TIMESTAMP,
+                    verificado BOOLEAN DEFAULT 0,
                     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
@@ -96,6 +101,10 @@ def inicializar_base_de_datos():
                     id SERIAL PRIMARY KEY,
                     correo varchar(255) UNIQUE NOT NULL,
                     password_hash varchar(255) NOT NULL,
+                    codigo_verificacion VARCHAR(6),
+                    intentos_verificacion INTEGER DEFAULT 0,
+                    fecha_codigo_generado TIMESTAMP,
+                    verificado BOOLEAN DEFAULT FALSE,
                     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
@@ -128,6 +137,60 @@ def inicializar_base_de_datos():
     finally:
         if cursor: cursor.close()
         if conexion: conexion.close()
+    
+    # Agregar columnas de verificación si no existen
+    agregar_columnas_verificacion()
+
+
+def agregar_columnas_verificacion():
+    """Agrega las columnas de verificación a la tabla usuarios si no existen"""
+    conexion = obtener_conexion()
+    if not conexion:
+        return
+    
+    cursor = None
+    try:
+        cursor = conexion.cursor()
+        
+        if usar_sqlite:
+            # SQLite - agregar columnas si no existen
+            cursor.execute("PRAGMA table_info(usuarios)")
+            columnas = [col[1] for col in cursor.fetchall()]
+            
+            if "codigo_verificacion" not in columnas:
+                cursor.execute("ALTER TABLE usuarios ADD COLUMN codigo_verificacion VARCHAR(6)")
+            if "intentos_verificacion" not in columnas:
+                cursor.execute("ALTER TABLE usuarios ADD COLUMN intentos_verificacion INTEGER DEFAULT 0")
+            if "fecha_codigo_generado" not in columnas:
+                cursor.execute("ALTER TABLE usuarios ADD COLUMN fecha_codigo_generado TIMESTAMP")
+            if "verificado" not in columnas:
+                cursor.execute("ALTER TABLE usuarios ADD COLUMN verificado BOOLEAN DEFAULT 0")
+        else:
+            # PostgreSQL - agregar columnas si no existen
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name='usuarios'
+            """)
+            columnas = [col[0] for col in cursor.fetchall()]
+            
+            if "codigo_verificacion" not in columnas:
+                cursor.execute("ALTER TABLE usuarios ADD COLUMN codigo_verificacion VARCHAR(6)")
+            if "intentos_verificacion" not in columnas:
+                cursor.execute("ALTER TABLE usuarios ADD COLUMN intentos_verificacion INTEGER DEFAULT 0")
+            if "fecha_codigo_generado" not in columnas:
+                cursor.execute("ALTER TABLE usuarios ADD COLUMN fecha_codigo_generado TIMESTAMP")
+            if "verificado" not in columnas:
+                cursor.execute("ALTER TABLE usuarios ADD COLUMN verificado BOOLEAN DEFAULT FALSE")
+        
+        conexion.commit()
+        print("✓ Columnas de verificación agregadas correctamente")
+    except Exception as e:
+        # Las columnas ya existen, ignorar el error
+        if "already exists" not in str(e) and "duplicate" not in str(e).lower():
+            print(f"Info: {e}")
+    finally:
+        if cursor: cursor.close()
+        if conexion: conexion.close()
 
 
 def registrar_usuario(correo, password_plana):
@@ -143,12 +206,19 @@ def registrar_usuario(correo, password_plana):
     cursor = None
     try:
         hash_password = auth_manager.encriptar_password(password_plana)
+        codigo_verificacion = auth_manager.generar_codigo_verificacion()
+        fecha_codigo = datetime.now()
+        
         cursor = conexion.cursor()
 
-        sql = "INSERT INTO usuarios (correo, password_hash) VALUES (?, ?)" if usar_sqlite else "INSERT INTO usuarios (correo, password_hash) VALUES (%s, %s)"
-        cursor.execute(sql, (correo, hash_password))
+        sql = "INSERT INTO usuarios (correo, password_hash, codigo_verificacion, fecha_codigo_generado, intentos_verificacion) VALUES (?, ?, ?, ?, ?)" if usar_sqlite else "INSERT INTO usuarios (correo, password_hash, codigo_verificacion, fecha_codigo_generado, intentos_verificacion) VALUES (%s, %s, %s, %s, %s)"
+        cursor.execute(sql, (correo, hash_password, codigo_verificacion, fecha_codigo, 0))
         conexion.commit()
-        return True, "Usuario registrado exitosamente." 
+        
+        # Enviar código de verificación por email
+        auth_manager.enviar_codigo_verificacion(correo, codigo_verificacion)
+        
+        return True, "Usuario registrado. Revisa tu correo para obtener el código de verificación."
     except sqlite3.IntegrityError if usar_sqlite else psycopg2.errors.UniqueViolation:
         conexion.rollback()
         return False, "El correo ya está registrado."
@@ -169,7 +239,7 @@ def validar_login(correo, password_plana):
     cursor = None
     try:
         cursor = conexion.cursor()
-        sql = "SELECT id, password_hash FROM usuarios WHERE correo = ?" if usar_sqlite else "SELECT id, password_hash FROM usuarios WHERE correo = %s"
+        sql = "SELECT id, password_hash, verificado FROM usuarios WHERE correo = ?" if usar_sqlite else "SELECT id, password_hash, verificado FROM usuarios WHERE correo = %s"
         cursor.execute(sql, (correo,))
         resultado = cursor.fetchone()
 
@@ -178,6 +248,11 @@ def validar_login(correo, password_plana):
         
         id_usuario = resultado[0] 
         hash_guardado = resultado[1]
+        verificado = resultado[2] if len(resultado) > 2 else False
+
+        # Verificar que el email esté verificado
+        if not verificado:
+            return False, "Debes verificar tu email para poder acceder. Revisa tu bandeja de entrada.", None
 
         if auth_manager.verificar_login(password_plana, hash_guardado):
             return True, "Login exitoso.", id_usuario
@@ -302,7 +377,119 @@ def obtener_correo_por_id(id_usuario):
         if conexion: conexion.close()
 
 
+def verificar_codigo(correo, codigo_ingresado):
+    """Verifica el código de verificación del usuario"""
+    conexion = obtener_conexion()
+    if not conexion:
+        return False, "Error de conexión a la base de datos."
+    
+    cursor = None
+    try:
+        cursor = conexion.cursor()
+        sql = "SELECT codigo_verificacion, fecha_codigo_generado, intentos_verificacion FROM usuarios WHERE correo = ?" if usar_sqlite else "SELECT codigo_verificacion, fecha_codigo_generado, intentos_verificacion FROM usuarios WHERE correo = %s"
+        cursor.execute(sql, (correo,))
+        resultado = cursor.fetchone()
+        
+        if not resultado:
+            return False, "Usuario no encontrado."
+        
+        codigo_guardado, fecha_codigo, intentos = resultado
+        
+        # Verificar si ya está verificado
+        sql_verificado = "SELECT verificado FROM usuarios WHERE correo = ?" if usar_sqlite else "SELECT verificado FROM usuarios WHERE correo = %s"
+        cursor.execute(sql_verificado, (correo,))
+        verificado = cursor.fetchone()[0]
+        
+        if verificado:
+            return False, "Este usuario ya ha sido verificado."
+        
+        # Verificar intentos
+        if intentos >= 5:
+            return False, "Máximo de intentos alcanzado. Solicita un nuevo código."
+        
+        # Verificar expiración (20 minutos)
+        from datetime import timedelta
+        tiempo_transcurrido = datetime.now() - fecha_codigo
+        if tiempo_transcurrido > timedelta(minutes=20):
+            return False, "El código ha expirado. Solicita un nuevo código."
+        
+        # Verificar código
+        if codigo_ingresado != codigo_guardado:
+            # Incrementar intentos
+            nuevo_intento = intentos + 1
+            sql_update = "UPDATE usuarios SET intentos_verificacion = ? WHERE correo = ?" if usar_sqlite else "UPDATE usuarios SET intentos_verificacion = %s WHERE correo = %s"
+            cursor.execute(sql_update, (nuevo_intento, correo))
+            conexion.commit()
+            
+            intentos_restantes = 5 - nuevo_intento
+            return False, f"Código incorrecto. Intentos restantes: {intentos_restantes}"
+        
+        # Código correcto - marcar como verificado
+        sql_verify = "UPDATE usuarios SET verificado = 1, codigo_verificacion = NULL WHERE correo = ?" if usar_sqlite else "UPDATE usuarios SET verificado = TRUE, codigo_verificacion = NULL WHERE correo = %s"
+        cursor.execute(sql_verify, (correo,))
+        conexion.commit()
+        
+        return True, "Email verificado correctamente. Ya puedes usar el chatbot."
+    except Exception as e:
+        return False, f"Error al verificar el código: {e}"
+    finally:
+        if cursor: cursor.close()
+        if conexion: conexion.close()
+
+
+def reenviar_codigo(correo):
+    """Reenvía un nuevo código de verificación al usuario"""
+    conexion = obtener_conexion()
+    if not conexion:
+        return False, "Error de conexión a la base de datos."
+    
+    cursor = None
+    try:
+        # Generar nuevo código
+        nuevo_codigo = auth_manager.generar_codigo_verificacion()
+        fecha_codigo = datetime.now()
+        
+        cursor = conexion.cursor()
+        
+        # Actualizar código en BD y reiniciar intentos
+        sql = "UPDATE usuarios SET codigo_verificacion = ?, fecha_codigo_generado = ?, intentos_verificacion = 0 WHERE correo = ?" if usar_sqlite else "UPDATE usuarios SET codigo_verificacion = %s, fecha_codigo_generado = %s, intentos_verificacion = 0 WHERE correo = %s"
+        cursor.execute(sql, (nuevo_codigo, fecha_codigo, correo))
+        conexion.commit()
+        
+        # Enviar nuevo código
+        auth_manager.enviar_codigo_verificacion(correo, nuevo_codigo)
+        
+        return True, "Nuevo código enviado a tu correo."
+    except Exception as e:
+        return False, f"Error al reenviar el código: {e}"
+    finally:
+        if cursor: cursor.close()
+        if conexion: conexion.close()
+
+
+def obtener_id_por_correo(correo):
+    """Obtiene el ID del usuario por su correo"""
+    conexion = obtener_conexion()
+    if not conexion:
+        return None
+    
+    cursor = None
+    try:
+        cursor = conexion.cursor()
+        sql = "SELECT id FROM usuarios WHERE correo = ?" if usar_sqlite else "SELECT id FROM usuarios WHERE correo = %s"
+        cursor.execute(sql, (correo,))
+        resultado = cursor.fetchone()
+        return resultado[0] if resultado else None
+    except Exception as e:
+        print(f"Error al obtener ID del usuario: {e}")
+        return None
+    finally:
+        if cursor: cursor.close()
+        if conexion: conexion.close()
+
+
 def obtener_datos_completos_conversacion(id_conversacion):
+
     """Obtiene todos los datos de una conversación"""
     conexion = obtener_conexion()
     if not conexion:

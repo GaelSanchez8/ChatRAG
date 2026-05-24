@@ -1,10 +1,12 @@
 import sys
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout,
                                 QLabel, QLineEdit, QPushButton, QMessageBox, QFrame, QHBoxLayout)
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from database.database_manager import registrar_usuario
 
 class RegisterWindow(QWidget):
+    registro_exitoso = Signal(str)  # Emite el correo del usuario registrado
+
     def __init__(self):
         super().__init__()
         # Activa el pintado de fondo para toda la ventana
@@ -183,12 +185,12 @@ class RegisterWindow(QWidget):
         
         exito, mensaje = registrar_usuario(correo, password)
         if exito:
-            QMessageBox.information(self, "Éxito", "Usuario registrado exitosamente. Ahora puedes iniciar sesión.")
+            QMessageBox.information(self, "Éxito", "Cuenta creada. Revisa tu correo para verificar tu email.")
             self.input_correo.clear()
             self.input_password.clear()
             self.input_confirm_password.clear()
-            # Opcional: Podrías hacer que al registrarse exitosamente vuelva al login automático simulando un clic
-            self.btn_volver.click()
+            # Emitir señal con el correo para ir a la ventana de verificación
+            self.registro_exitoso.emit(correo)
         else:
             QMessageBox.warning(self, "Error", mensaje)
     

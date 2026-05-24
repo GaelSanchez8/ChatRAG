@@ -3,11 +3,15 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QStackedWidget)
 from src.ui.login_window import LoginWindow
 from src.ui.register_window import RegisterWindow
 from src.ui.chat_window import ChatWindow
+from src.ui.verify_email_window import VerifyEmailWindow
 from database.database_manager import inicializar_base_de_datos
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        # Inicializar la base de datos
+        inicializar_base_de_datos()
+        
         self.setWindowTitle("AI RAG Assistant - Prototipo") # Cambiar el titulo para mostrar el nombre del chatbot
         self.resize(800, 600)
         self.stack = QStackedWidget()
@@ -16,23 +20,35 @@ class MainWindow(QMainWindow):
         #Iniciar las ventanas
         self.vista_login = LoginWindow()
         self.vista_register = RegisterWindow()
+        self.vista_verificacion = VerifyEmailWindow()
         self.vista_chat = ChatWindow()
 
         #Agregar las ventanas al stack
         self.stack.addWidget(self.vista_login)  # Índice 0
         self.stack.addWidget(self.vista_register)  # Índice 1
-        self.stack.addWidget(self.vista_chat)  # Índice 2
+        self.stack.addWidget(self.vista_verificacion)  # Índice 2
+        self.stack.addWidget(self.vista_chat)  # Índice 3
 
         #Conectar señales para navegar entre ventanas
         self.vista_login.btn_registrar.clicked.connect(self.mostrar_registro)
         self.vista_register.btn_volver.clicked.connect(self.mostrar_login)
+        self.vista_register.registro_exitoso.connect(self.mostrar_verificacion)  # Ir a verificación después del registro
         self.vista_login.login_exitoso.connect(self.mostrar_chat)  # Conectar la señal de login exitoso a la función que muestra la vista de chat
-        self.vista_chat.btn_logout.clicked.connect(self.cerrar_sesion)  # Botón para cerrar sesión y volver al login    
+        self.vista_chat.btn_logout.clicked.connect(self.cerrar_sesion)  # Botón para cerrar sesión y volver al login
+        self.vista_verificacion.verificacion_exitosa.connect(self.mostrar_chat)  # Después de verificar, ir a chat
+        self.vista_verificacion.volver_a_login.connect(self.mostrar_login)  # Volver al login desde verificación    
 
     def mostrar_registro(self):
         self.stack.setCurrentWidget(self.vista_register)
+    
     def mostrar_login(self):
         self.stack.setCurrentWidget(self.vista_login)
+    
+    def mostrar_verificacion(self, correo):
+        """Muestra la ventana de verificación de email después del registro"""
+        self.vista_verificacion.set_correo(correo)
+        self.stack.setCurrentWidget(self.vista_verificacion)
+    
     def mostrar_chat(self, id_usuario, correo):
         self.vista_chat.id_usuario_actual = id_usuario
         self.vista_chat.correo_usuario = correo
@@ -57,6 +73,8 @@ class MainWindow(QMainWindow):
 
         #Reiniciar la interfaz visual del chat
         self.vista_chat.lbl_archivo.setText("📄 Archivo: Ninguno")
+        self.vista_chat.lbl_id_conversacion.setText("ID Conversación: N/A")
+        self.vista_chat.lbl_fecha_conversacion.setText("Fecha: N/A")
         self.vista_chat.lbl_usuario.setText(f"👤 {self.vista_chat.correo_usuario}")
         self.vista_chat.limpiar_pantalla_chat()
 

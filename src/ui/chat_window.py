@@ -7,16 +7,43 @@ from PySide6.QtGui import QKeyEvent
 from database.database_manager import (crear_conversacion_db, insertar_mensaje_db, 
                                        obtener_conversacion_por_archivo, obtener_mensajes_db, 
                                        obtener_datos_completos_conversacion)
-from src.logic.ia_engine import _llamar_gemini_interno
+from src.logic.ia_engine import procesar_pregunta_ia
 from src.logic.document_processor import extraer_texto_pdf, dividir_texto_en_chunks, encontrar_mejores_chunks
 from src.logic.export_manager import exportar_a_json, exportar_a_xml
 import os
+import re
+from datetime import datetime
 
 class CajaTextoChat(QTextEdit):
     enter_presionado = Signal() 
     def __init__(self, parent=None):
         super().__init__(parent)
     
+    def run(self):
+        try:
+            nombre_archivo = os.path.basename(self.ruta_archivo)
+            texto_completo = extraer_texto_pdf(self.ruta_archivo)
+            #Validacion para en caso de que el archivo este en blanco o solo con imagenes
+            if not texto_completo or not texto_completo.strip():
+                self.error.emit("No se pudo extraer texto del archivo o el texto está vacío.")
+                return
+            
+            #Archivo solo con numeros o simbolos
+            tiene_letras = re.search(r'[a-zA-ZáéíóúÁÉÍÓÚñÑ]', texto_completo)
+            if not tiene_letras:
+                self.error.emit("El documento solo contiene números o símbolos en lugar de texto válido.")
+                return
+            
+            #Si pasa estas validaciones entonces se procede a dividir en chunks
+            chunks = dividir_texto_en_chunks(texto_completo)
+            if not chunks:
+                self.error.emit("No se pudieron generar chunks del documento.")
+                return
+            self.exito.emit(chunks, nombre_archivo)
+        except Exception as e:
+            self.error.emit(f"Error al procesar el documento: {str(e)}")
+
+
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() == Qt.Key_Return and not (event.modifiers() & Qt.ShiftModifier):
             self.enter_presionado.emit()
@@ -99,6 +126,14 @@ class ChatWindow(QWidget):
         self.lbl_archivo = QLabel("📄 Archivo: Ninguno")
         self.lbl_archivo.setWordWrap(True)
         self.panel_lateral.addWidget(self.lbl_archivo)
+
+        #Etiquetas de ID y fecha 
+        self.lbl_id_conversacion = QLabel("ID Conversación: N/A")
+        self.lbl_fecha_conversacion = QLabel(" Fecha: N/A")
+        self.lbl_id_conversacion.setStyleSheet("color: $a19f9d; font-size: 11px;")
+        self.lbl_fecha_conversacion.setStyleSheet("color: $a19f9d; font-size: 11px;")
+        self.panel_lateral.addWidget(self.lbl_id_conversacion)
+        self.panel_lateral.addWidget(self.lbl_fecha_conversacion)
 
         self.btn_cargar = QPushButton("Cargar Documento")
         self.btn_exportar = QPushButton("Exportar Historial")
@@ -407,18 +442,27 @@ class ChatWindow(QWidget):
                 self.agregar_burbuja_mensaje("Sistema", "Error al registrar la sesión en base de datos.")
 
     def documento_procesado_error(self, mensaje_error):
-        """Sebtn_cargar.setText("Cargar Documento")  # Restaurar texto original
-        self.btn_exportar.setEnabled(False)  # Mantener deshabilitado si hay error
-        self. ejecuta si el PDF está corrupto o hubo un error en la lectura"""
+        """Ejecuta si el PDF está corrupto o hubo un error en la lectura"""
         self.btn_cargar.setEnabled(True)
+        self.btn_cargar.setText("Cargar Documento")  # Restaurar texto original
+        self.btn_exportar.setEnabled(False)  # Mantener deshabilitado si hay error
         self.lbl_archivo.setText("📄 Archivo: Ninguno")
         self.agregar_burbuja_mensaje("Sistema", f"❌ {mensaje_error}")
 
     def cargar_historial_visual(self, id_conversacion):
         self.limpiar_pantalla_chat()
+        
+        # 1. Mostrar el ID en la interfaz
+        self.lbl_id_conversacion.setText(f"ID Conversación: {id_conversacion}")
+        
         historial = obtener_mensajes_db(id_conversacion)
 
         if historial:
+            # 2. Extraer la fecha del primer mensaje (historial[0] es el más antiguo)
+            # fila[2] corresponde a la columna de fecha
+            fecha_str = str(historial[0][2]) if historial[0][2] else "Sin fecha"
+            self.lbl_fecha_conversacion.setText(f" Fecha: {fecha_str.split('.')[0]}") # .split quita los milisegundos
+            
             for fila in historial:
                 fila_lista = list(fila)  
                 if "Usuario" in fila_lista:
@@ -433,7 +477,11 @@ class ChatWindow(QWidget):
                 
                 self.agregar_burbuja_mensaje(remitente, texto)
         else:
+            # Si es una conversación nueva, ponemos la fecha de hoy
+            fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M")
+            self.lbl_fecha_conversacion.setText(f" Fecha: {fecha_actual}")
             self.agregar_burbuja_mensaje("Sistema", "No se encontraron mensajes en esta conversación. Comienza a interactuar haciendo una pregunta sobre el documento.")
+
 
     def ejecutar_exportacion(self):
         if not self.id_conversacion_actual: 
@@ -485,7 +533,7 @@ class IAThread(QThread):
 
     def run(self):
         mejor_contexto = encontrar_mejores_chunks(self.pregunta, self.chunks)  
-        respuesta = _llamar_gemini_interno(self.pregunta, mejor_contexto)
+        respuesta = procesar_pregunta_ia(self.pregunta, mejor_contexto)
         insertar_mensaje_db(self.id_conversacion_actual, "Sistema", respuesta)  
         self.respuesta_recibida.emit(respuesta)
 
