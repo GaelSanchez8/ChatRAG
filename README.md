@@ -136,7 +136,6 @@ Proyecto/
 
 - **[manual_usuario.txt](manual_usuario.txt)** - Guía completa para usuarios finales
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Solución de problemas comunes
-- **[SECURITY.md](SECURITY.md)** - Pautas de seguridad
 
 ## 🛠️ Tech Stack
 
@@ -148,10 +147,3 @@ Proyecto/
 - **Email**: Gmail SMTP (opcional)
 - **Dependencias**: Ver [requirements.txt](requirements.txt)
 
-## 📝 Licencia
-
-Proyecto final para la materia de Ingeniería de Software - 4to Semestre
-
-## 👥 Equipo de Desarrollo
-
-Equipo de Ingeniería de Software
