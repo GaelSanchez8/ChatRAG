@@ -20,5 +20,3 @@ storage/
 # Archivos de sistema
 .DS_Store
 Thumbs.db
-SECURITY.md
-TROUBLESHOOTING.md
