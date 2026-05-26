@@ -27,7 +27,7 @@ def obtener_conexion():
             database=os.getenv('SUPABASE_DB_NAME'),
             user=os.getenv('SUPABASE_DB_USER'),
             password=os.getenv('SUPABASE_DB_PASSWORD'),
-            connect_timeout=3  # <-- ¡AQUÍ ESTÁ LA MODIFICACIÓN! Espera máximo 3 segundos.
+            connect_timeout=3  
         )
         print("✓ Conectado a Supabase (PostgreSQL)")
         return conexion
@@ -409,6 +409,10 @@ def verificar_codigo(correo, codigo_ingresado):
         
         # Verificar expiración (20 minutos)
         from datetime import timedelta
+
+        if isinstance(fecha_codigo, str):
+            fecha_codigo = datetime.strptime(fecha_codigo.split(".")[0], "%Y-%m-%d %H:%M:%S")
+            
         tiempo_transcurrido = datetime.now() - fecha_codigo
         if tiempo_transcurrido > timedelta(minutes=20):
             return False, "El código ha expirado. Solicita un nuevo código."
